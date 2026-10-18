@@ -1,0 +1,92 @@
+# ============================================================
+# Program 03 — Energy I(ρ) and Constant C* for ν = 2
+# ============================================================
+# This program rigorously evaluates the logarithmic energy 
+# I(ρ) of the 3-interval arcsine measure found in Program 01,
+# and the constant correction C_*.
+#
+# It uses 300-bit interval arithmetic to ensure mathematical rigor.
+# These values are combined in Program 05 to form the rigorous 
+# real bound U <= -2.306495.
+# Runtime: < 1 second.
+# ============================================================
+
+from sage.all import *
+
+# ---------- Interval Field (300-bit precision) ----------
+R = RealIntervalField(300)
+Rpi = R(pi)
+
+# ---------- Parameters ----------
+alpha = R(3)/R(40)
+lam   = R(37)/R(40)
+nu    = R(2)       # Fixed pole constant, independent of s
+
+# ---------- Measure from Program 01 ----------
+L_vals = [0.003595836, 0.061917985, 0.311070580]
+c_vals = [0.125370973, 0.345185732, 0.454443295]
+
+# Convert to exact RIF using rational approximation (denominator 10^9)
+D = 10**9
+Ls = [R(QQ(int(round(l*D))))/R(D) for l in L_vals]
+cs = [R(QQ(int(round(c*D))))/R(D) for c in c_vals]
+
+print("=" * 65)
+print("Program 03 — Energy I(ρ) and Constant C*")
+print("=" * 65)
+print("Measure from Program 01:")
+for k in range(3):
+    print(f"  L_{k+1} = {L_vals[k]:.9f}   c_{k+1} = {c_vals[k]:.9f}")
+print(f"  mass = {float(sum(cs)):.12f}")
+print("-" * 65)
+
+# ---------- Energy I(ρ) ----------
+# For nested arcsine measures rho = sum c_j mu_{[0,L_j]}, 
+# the energy is I = sum_j (S_j^2 - S_{j-1}^2) log(L_j / 4)
+I_rho = R(0)
+S_prev = R(0)
+
+for j in range(3):
+    S_j = S_prev + cs[j]
+    I_rho += (S_j**2 - S_prev**2) * (Ls[j]/R(4)).log()
+    S_prev = S_j
+
+I_mid   = float(I_rho)
+I_lower = float(I_rho.lower())
+I_upper = float(I_rho.upper())
+
+print(f"I(ρ) = [{I_lower:.12f}, {I_upper:.12f}]")
+print(f"     ≈ {I_mid:.12f}")
+print("-" * 65)
+
+# ---------- Constant C_* ----------
+# C_* = -2λ + 4αλ(1 - log α) + 3λ^2 - 2λ^2 log(2λ)
+C = (-R(2)*lam
+     + R(4)*alpha*lam*(R(1) - alpha.log())
+     + R(3)*lam**2
+     - R(2)*lam**2*(R(2)*lam).log())
+
+C_mid   = float(C)
+C_lower = float(C.lower())
+C_upper = float(C.upper())
+
+print(f"C_* = [{C_lower:.12f}, {C_upper:.12f}]")
+print(f"     ≈ {C_mid:.12f}")
+print("-" * 65)
+
+# ---------- Sanity checks ----------
+check_I_neg  = I_upper < 0
+check_I_size = -5.0 < I_mid < -1.0
+check_C_pos  = C_lower > 0
+check_C_size = 0.6 < C_mid < 0.7
+
+print("Sanity checks:")
+print(f"  I(ρ) < 0              : {check_I_neg}")
+print(f"  -5 < I(ρ) < -1        : {check_I_size}")
+print(f"  C_* > 0               : {check_C_pos}")
+print(f"  0.6 < C_* < 0.7       : {check_C_size}")
+print("-" * 65)
+
+ok = check_I_neg and check_I_size and check_C_pos and check_C_size
+print(f"==> {'PASS' if ok else 'FAIL'} (Program 03)")
+print("=" * 65)

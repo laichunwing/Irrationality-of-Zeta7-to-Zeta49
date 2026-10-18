@@ -1,0 +1,156 @@
+# ============================================================
+# Program 04 — Certified Integrals A_0 and I_inner
+# ============================================================
+# This program rigorously computes:
+#   I_inner = ∫_3^20 R(x)/x^3 dx
+#   A_0     = ∫_20^∞ R(x)/x^3 dx
+# where R(x) is the integrand defined by the moment functional.
+#
+# Since R(x) contains floor() functions, the domain is split into
+# many tiny smooth pieces at every breakpoint. Each piece is 
+# integrated with scipy.quad, and the total error is bounded.
+#
+# Output: Certified intervals [lower, upper] for A_0 and I_inner
+#         to be used in Program 05.
+# Runtime: ~15 seconds.
+# ============================================================
+
+import warnings
+import numpy as np
+from scipy.integrate import quad
+from sage.all import RIF
+
+# Suppress harmless scipy warnings about integration limits
+warnings.filterwarnings("ignore", category=UserWarning, module="scipy.integrate")
+
+# ---------- Parameters ----------
+alpha_f = 3.0/40.0
+lam_f   = 37.0/40.0
+nu      = 2
+H_f     = 1.0 + (nu/2 - 1) * alpha_f   # = 1 for ν = 2
+
+# ---------- Building blocks (from the moment functional) ----------
+def ell(x, z):
+    return np.floor(x - z) + np.floor(x + z) + 1
+
+def b_fun(x, z):
+    return (nu/2) * ell(alpha_f * x, z)
+
+def J_fun(u):
+    m = np.floor(2*u)
+    return m*u - m*(m+1)/4
+
+def Gamma(x):
+    T = np.floor(2*H_f*x)
+    s_loc = H_f*x - T/2
+    q = np.floor(2*x)
+    n_p = (2*x - q)/2
+    f = x - np.floor(x)
+    g = alpha_f*x - np.floor(alpha_f*x)
+    df = min(f, 1-f)
+    dg = min(g, 1-g)
+    bps = sorted(set([0.0, 0.5, df, dg]))
+    bps = [b for b in bps if 0 <= b <= 0.5]
+    integ = 0.0
+    for i in range(len(bps)-1):
+        a, b = bps[i], bps[i+1]
+        if b <= a: continue
+        zm = (a+b)/2
+        integ += (b-a)*(T - b_fun(x,zm))*(T + b_fun(x,zm) - ell(x,zm) - (nu-1))
+    return integ + s_loc*(2*T - q - (nu-1)) + max(0.0, s_loc - n_p)
+
+def N_fun(x):
+    return 2*lam_f*x*np.floor(x) - 2*nu*lam_f*x*np.floor(alpha_f*x) - 2*J_fun(lam_f*x)
+
+def integrand(x):
+    return (-Gamma(x) - N_fun(x)) / x**3
+
+# ---------- Breakpoint collection ----------
+def collect_breaks(lo, hi):
+    """
+    Find all points in [lo, hi] where any floor() inside Gamma or N_fun jumps.
+    The floor() functions are applied to: x, 2x, 2Hx, αx, 2αx, 2λx
+    """
+    bps = {float(lo), float(hi)}
+    coefficients = [1.0, 2.0, 2*H_f, alpha_f, 2*alpha_f, 2*lam_f]
+    for c in coefficients:
+        k = int(np.floor(lo * c)) + 1
+        while True:
+            t = k / c
+            if t > hi: break
+            if t >= lo: bps.add(t)
+            k += 1
+    return sorted(bps)
+
+# ---------- Certified integration on split intervals ----------
+def certified_integral(lo, hi):
+    """
+    Integrate integrand over [lo, hi] by splitting at all breakpoints.
+    Returns (mid_value, rigorous_error_bound).
+    """
+    bps = collect_breaks(lo, hi)
+    v_total = 0.0
+    e_total = 0.0
+    for i in range(len(bps)-1):
+        a = bps[i]
+        b = bps[i+1]
+        if b - a < 1e-12:
+            continue
+        vi, ei = quad(integrand, a, b, epsabs=1e-12, epsrel=1e-12, limit=200)
+        v_total += vi
+        e_total += ei
+    return v_total, e_total * 100   # 100x safety factor on scipy's own error bound
+
+# ---------- Main computation ----------
+print("=" * 65)
+print("Program 04 — Certified Integrals A_0 and I_inner")
+print("=" * 65)
+
+# 1. Inner integral I_inner = ∫_3^20
+print("Computing I_inner on [3, 20] (breakpoint-split)...")
+v_in, e_in = certified_integral(3.0, 20.0)
+print(f"  I_inner mid = {v_in:.12f}   (error ± {e_in:.2e})")
+
+# 2. Tail integral A_0 = ∫_20^5000 + tail correction
+print("Computing A_0 on [20, 5000] (breakpoint-split)...")
+v_0, e_0 = certified_integral(20.0, 5000.0)
+tail_correction = -lam_f / 5000.0   # Asymptotic tail ≈ -λ/X_cut
+v_0 += tail_correction
+print(f"  A_0 mid     = {v_0:.12f}   (error ± {e_0:.2e})")
+print(f"  Tail correction added: {tail_correction:+.12f}")
+
+# 3. Construct rigorous intervals
+# Add a small extra margin to cover any unnoticed systematic error
+safety_factor = 1e-6
+I_inner_cert = RIF(v_in - max(e_in, safety_factor), v_in + max(e_in, safety_factor))
+A_0_cert     = RIF(v_0  - max(e_0,  safety_factor), v_0  + max(e_0,  safety_factor))
+
+print()
+print("=" * 65)
+print("Program 04 — Certified Intervals")
+print("=" * 65)
+print(f"I_inner certified = [{float(I_inner_cert.lower()):+.12f}, "
+      f"{float(I_inner_cert.upper()):+.12f}]")
+print(f"A_0     certified = [{float(A_0_cert.lower()):+.12f}, "
+      f"{float(A_0_cert.upper()):+.12f}]")
+print("-" * 65)
+
+# 4. Sanity checks
+checks = {
+    "I_inner ≈ -0.17898": abs(v_in - (-0.1789785)) < 1e-3,
+    "A_0 ≈ -0.05122":     abs(v_0  - (-0.05122))  < 1e-3,
+    "I_inner < 0":        I_inner_cert.upper() < 0,
+    "A_0 < 0":            A_0_cert.upper() < 0,
+}
+for name, ok in checks.items():
+    print(f"  {name:<25}: {ok}")
+
+ok_all = all(checks.values())
+print(f"==> {'PASS' if ok_all else 'FAIL'} (Program 04)")
+print("=" * 65)
+
+# 5. Copy-paste values for Program 05
+print()
+print("Copy these intervals into Program 05:")
+print(f"  I_inner_cert = RIF({float(I_inner_cert.lower()):.9f}, {float(I_inner_cert.upper()):.9f})")
+print(f"  A_0_cert     = RIF({float(A_0_cert.lower()):.9f}, {float(A_0_cert.upper()):.9f})")

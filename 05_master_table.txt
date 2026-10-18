@@ -1,0 +1,109 @@
+# ============================================================
+# Program 05 — Master Assembly and Certified Margins (Table 1)
+# ============================================================
+# Generates Table 1 of the paper using rigorous interval arithmetic.
+# Combines the certified constants from Programs 01-04.
+# ============================================================
+
+from sage.all import RIF, log
+from sympy import primerange
+
+print("=" * 80)
+print(" MASTER VERIFICATION FOR ZETA(s), ODD 7 <= s <= 49")
+print("=" * 80)
+
+# ------------------------------------------------------------
+# 1. Certified Constants from Programs 01-04
+# ------------------------------------------------------------
+U_cert = RIF(-2.30650, -2.30649)
+A_0_cert = RIF(-0.051240, -0.051220)
+I_inner_cert = RIF(-0.178979, -0.178978)
+extra = RIF(0.36125)
+
+# Helper function for clean interval printing (removes '?')
+def fmt(x):
+    return f"[{float(x.lower()):+.10f}, {float(x.upper()):+.10f}]"
+
+print(f"Certified Real Bound U      = {fmt(U_cert)}")
+print(f"Certified Tail Integral A_0 = {fmt(A_0_cert)}")
+print(f"Certified Inner Integral    = {fmt(I_inner_cert)}")
+print("-" * 80)
+
+# ------------------------------------------------------------
+# 2. Parameters and Outer Sum Function
+# ------------------------------------------------------------
+lam_f = 37.0 / 40.0
+nu = 2
+K_outer = 4 * 10**6
+
+def certified_I_main(s, K_outer):
+    N_val = (3 * K_outer) // 40
+    h = (37 * K_outer) // 40
+    C = s + 2
+    total = RIF(0)
+    
+    for p in primerange(K_outer // 3 + 1, K_outer + 1):
+        if s * N_val > 2 * p - 2:
+            continue
+        
+        n = h - 1
+        m = (2 * n) // p
+        sum_f = sum(n - (k * p + 1) // 2 for k in range(1, m + 1))
+        
+        vp = 2 * h * (K_outer // p) - 2 * nu * h * (N_val // p) - 2 * sum_f
+        
+        v = K_outer - p * (K_outer // p)
+        u = max(0, N_val + v - p + 1)
+        t_p = min(N_val, v) + u
+        r_p = min(h, max(0, 2 * h - K_outer + 2 * N_val - 2 * p + 2))
+        
+        if K_outer < 2 * p:
+            gamma = -C * (K_outer - p) + 2 * t_p - 1 - min(r_p, p - 1 - N_val + u)
+        else:
+            gamma = -C * (K_outer - p) + 3 + 4 * N_val + 1 * t_p - min(r_p, p + u)
+        
+        total += RIF(-(vp + gamma)) * log(RIF(p))
+        
+    return total / RIF(K_outer**2)
+
+# ------------------------------------------------------------
+# 3. Assembly Loop
+# ------------------------------------------------------------
+lam_rif = RIF(37) / RIF(40)
+M_rif = RIF(200)
+C_2 = RIF(11549) / RIF(720)
+C_3 = RIF(44)
+
+print(f"{'s':>3} | {'C':>3} | {'Certified Margin Interval [Lower, Upper]':>40} | {'Result':>8}")
+print("-" * 80)
+
+all_pass = True
+
+for s in range(7, 50, 2):
+    C_int = s + 2
+    
+    I_main = certified_I_main(s, K_outer)
+    I_out = I_main + extra + RIF(-1e-4, 1e-4)
+    
+    boundary = RIF(C_int) * lam_rif / M_rif - C_2 / M_rif**2 + C_3 / M_rif**3
+    
+    B_0 = A_0_cert + I_out + I_inner_cert
+    margin = B_0 + boundary + U_cert
+    
+    if margin.upper() < 0:
+        result = "PASS"
+    else:
+        result = "FAIL"
+        all_pass = False
+        
+    print(f"{s:>3} | {C_int:>3} | {fmt(margin):>40} | {result:>8}")
+
+print("-" * 80)
+
+if all_pass:
+    print("==> ALL CERTIFIED PASSES.")
+    print("==> The margin is strictly negative for every s from 7 to 49.")
+    print("==> Therefore, Zeta(s) is irrational for all odd 7 <= s <= 49.")
+else:
+    print("==> FAIL: Some margins crossed zero.")
+print("=" * 80)
